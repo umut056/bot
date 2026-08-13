@@ -11,11 +11,18 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_API = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent"
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_HEADERS = {
+    "x-goog-api-key": GEMINI_API_KEY,
+    "Content-Type": "application/json",
+}
+PREFERRED_MODELS = (
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
 )
+_selected_model = None
 
 SYSTEM_PROMPT = """Sen bir kilo kontrol danışanları grubunda yer alan, sıcak ve
 destekleyici bir motivasyon botusun.
@@ -55,7 +62,37 @@ def parse_response(raw_text: str):
         return "diger", ""
 
 
+def select_gemini_model():
+    global _selected_model
+    if _selected_model:
+        return _selected_model
+
+    requested_model = os.getenv("GEMINI_MODEL")
+    if requested_model:
+        _selected_model = requested_model
+        return _selected_model
+
+    response = requests.get(
+        f"{GEMINI_BASE_URL}/models",
+        headers=GEMINI_HEADERS,
+        timeout=15,
+    )
+    response.raise_for_status()
+    available = {
+        item.get("name", "").removeprefix("models/")
+        for item in response.json().get("models", [])
+        if "generateContent" in item.get("supportedGenerationMethods", [])
+    }
+    for model in PREFERRED_MODELS:
+        if model in available:
+            _selected_model = model
+            print("Gemini modeli:", model, flush=True)
+            return model
+    raise RuntimeError("Bu API anahtarında uygun Gemini Flash modeli bulunamadı.")
+
+
 def ask_gemini(parts):
+    model = select_gemini_model()
     payload = {
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": parts}],
@@ -66,8 +103,8 @@ def ask_gemini(parts):
         },
     }
     response = requests.post(
-        GEMINI_API,
-        params={"key": GEMINI_API_KEY},
+        f"{GEMINI_BASE_URL}/models/{model}:generateContent",
+        headers=GEMINI_HEADERS,
         json=payload,
         timeout=25,
     )
