@@ -121,8 +121,14 @@ def get_file_bytes(file_id):
 @app.route("/api/webhook", methods=["POST"])
 def webhook():
     update = request.get_json(force=True, silent=True) or {}
-    message = update.get("message")
+    print("Telegram güncellemesi:", list(update.keys()), flush=True)
+    message = (
+        update.get("message")
+        or update.get("edited_message")
+        or update.get("channel_post")
+    )
     if not message:
+        print("İşlenebilir mesaj bulunamadı.", flush=True)
         return "ok", 200
 
     chat_id = message["chat"]["id"]
@@ -143,7 +149,15 @@ def webhook():
         if kategori in ("yemek", "kilo") and cevap:
             send_message(chat_id, cevap, reply_to_message_id=message_id)
     except Exception as error:
-        print("Hata:", error)
+        print("BOT_HATASI:", repr(error), flush=True)
+        try:
+            send_message(
+                chat_id,
+                "Mesajı işlerken bir API hatası oluştu. Vercel kayıtlarını kontrol edin.",
+                reply_to_message_id=message_id,
+            )
+        except Exception as telegram_error:
+            print("TELEGRAM_HATASI:", repr(telegram_error), flush=True)
 
     return "ok", 200
 
@@ -151,4 +165,3 @@ def webhook():
 @app.route("/api/webhook", methods=["GET"])
 def health_check():
     return "Bot çalışıyor.", 200
-
